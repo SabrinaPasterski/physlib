@@ -161,6 +161,7 @@ structure FullTODOInfo where
   fileName : Name
   name : Name
   line : Nat
+  endLine : Nat
   isInformalDef : Bool
   isInformalLemma : Bool
   isSemiFormalResult : Bool
@@ -171,10 +172,13 @@ structure FullTODOInfo where
 def FullTODOInfo.toYAML (todo : FullTODOInfo) : MetaM String := do
   let content := todo.content
   let contentIndent := content.replace "\n" "\n      "
+  let link := todo.fileName.toGitHubLink todo.line
+  let link := if todo.line < todo.endLine then s!"{link}-L{todo.endLine}" else link
   return s!"
   - file: {todo.fileName}
-    githubLink: {Name.toGitHubLink todo.fileName todo.line}
+    githubLink: {link}
     line: {todo.line}
+    endLine: {todo.endLine}
     isInformalDef: {todo.isInformalDef}
     isInformalLemma: {todo.isInformalLemma}
     isSemiFormalResult: {todo.isSemiFormalResult}
@@ -191,7 +195,8 @@ def FullTODOInfo.toYAML (todo : FullTODOInfo) : MetaM String := do
 -/
 
 def FullTODOInfo.ofTODO (t : todoInfo) : FullTODOInfo :=
-  {content := t.content, fileName := t.fileName, line := t.line, name := t.fileName,
+  {content := t.content, fileName := t.fileName, line := t.line, endLine := t.endLine,
+   name := t.fileName,
    isInformalDef := false, isInformalLemma := false,
    isSemiFormalResult := false, category := PhyslibCategory.ofFileName t.fileName,
    tag := t.tag}
@@ -212,12 +217,14 @@ unsafe def informalTODO (x : ConstantInfo) : CoreM FullTODOInfo := do
   let name := x.name
   let tag ← Informal.getTag x
   let lineNo ← Name.lineNumber name
+  let ranges ← findDeclarationRanges? name
+  let endLine := (ranges.map fun decl => decl.range.endPos.line).getD lineNo
   let docString ← Name.getDocString name
   let file ← Name.fileName name
   let isInformalDef := Informal.isInformalDef x
   let isInformalLemma := Informal.isInformalLemma x
   let category := PhyslibCategory.ofFileName file
-  return {content := docString, fileName := file, line := lineNo, name := name,
+  return {content := docString, fileName := file, line := lineNo, endLine := endLine, name := name,
           isInformalDef := isInformalDef, isInformalLemma := isInformalLemma,
           isSemiFormalResult := false, category := category,
           tag := tag}
@@ -233,7 +240,8 @@ unsafe def allInformalTODO : CoreM (Array FullTODOInfo) := do
 -/
 
 def FullTODOInfo.ofSemiFormal (t : WantedInfo) : FullTODOInfo :=
-  {content := t.content, fileName := t.fileName, line := t.line, name := t.name,
+  {content := t.content, fileName := t.fileName, line := t.line, endLine := t.endLine,
+   name := t.name,
    isInformalDef := false, isInformalLemma := false,
    isSemiFormalResult := true, category := PhyslibCategory.ofFileName t.fileName,
    tag := t.tag}

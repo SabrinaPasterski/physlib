@@ -37,6 +37,8 @@ structure WantedInfo where
   fileName : Name
   /-- The line from where the note came from. -/
   line : Nat
+  /-- The last line of the semiformal declaration. -/
+  endLine : Nat
   /-- The tag of the TODO item -/
   tag : String
 
@@ -75,12 +77,14 @@ meta def elabLemmaWanted : CommandElab := fun stx =>
       let fileMap ← getFileMap
       let filePos := fileMap.toPosition pos
       let line := filePos.line
+      let endLine := (fileMap.toPosition (stx.getTailPos?.getD pos)).line
       let modName := env.mainModule
       let wantedInfo : WantedInfo := {
         content := docString,
         name := (Lean.Elab.expandDeclIdCore name).1,
         fileName := modName,
         line := line,
+        endLine := endLine,
         tag := tag }
       let _ ← modifyEnv fun env => wantedExtension.addEntry env wantedInfo
       let _ ← withoutModifyingEnv do

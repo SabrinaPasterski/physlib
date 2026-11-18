@@ -26,6 +26,8 @@ structure todoInfo where
   fileName : Name
   /-- The line from where the note came from. -/
   line : Nat
+  /-- The last line of the TODO command or its explicit target. -/
+  endLine : Nat
   /-- The tag of the TODO item -/
   tag : String
 
@@ -37,29 +39,31 @@ meta initialize todoExtension : SimplePersistentEnvExtension todoInfo (Array tod
     addImportedFn := fun es => es.foldl (· ++ ·) #[]
   }
 
-/-- Syntax for the `TODO ...` command. -/
-syntax (name := todo_comment) "TODO " str : command
+/-- Syntax for a TODO anchored to the command or to an explicit range in the same file. -/
+syntax (name := todo_comment) "TODO " ("(" &"lines" " := " num ("-" num)? ") ")? str : command
 
-/-- Elaborator for the `TODO ...` command -/
+/-- Elaborator for the `TODO ...` command. -/
 @[command_elab todo_comment]
-meta def elabTODO : Elab.Command.CommandElab := fun stx =>
-  match stx with
-  | `(TODO $s) => do
-    let str : String := s.getString
-    let tag : String := toString (String.hash str)
-    let pos := stx.getPos?
-    match pos with
-    | some pos => do
-      let env ← getEnv
-      let fileMap ← getFileMap
-      let filePos := fileMap.toPosition pos
-      let line := filePos.line
-      let modName := env.mainModule
-      let todoInfo : todoInfo := { content := str, fileName := modName, line := line, tag := tag }
-      modifyEnv fun env => todoExtension.addEntry env todoInfo
-      Elab.Command.liftTermElabM <| Lean.Elab.Term.addTermInfo' s
-        (Lean.mkStrLit s!"TODO tag: {tag}") (expectedType? := none)
-    | none => throwError "Invalid syntax for `TODO` command"
-  | _ => throwError "Invalid syntax for `TODO` command"
+meta def elabTODO : Elab.Command.CommandElab := fun stx => do
+  let (message, explicitRange) ← match stx with
+    | `(TODO $s:str) => pure (s, none)
+    | `(TODO (lines := $line:num) $s:str) => pure (s, some (line.getNat, line.getNat))
+    | `(TODO (lines := $first:num-$last:num) $s:str) => pure (s, some (first.getNat, last.getNat))
+    | _ => throwError "Invalid syntax for `TODO` command"
+  let some pos := stx.getPos? | throwError "Invalid source position for `TODO` command"
+  let env ← getEnv
+  let fileMap ← getFileMap
+  let commandStart := (fileMap.toPosition pos).line
+  let commandEnd := (fileMap.toPosition (stx.getTailPos?.getD pos)).line
+  let (line, endLine) := explicitRange.getD (commandStart, commandEnd)
+  let lastSourceLine := fileMap.getLastLine - (if fileMap.source.endsWith "\n" then 1 else 0)
+  unless 0 < line && line <= endLine && endLine <= lastSourceLine do
+    throwError "TODO lines must be an ordered range within the current file"
+  let content := message.getString
+  let tag := toString (String.hash content)
+  let info : todoInfo := {content, fileName := env.mainModule, line, endLine, tag}
+  modifyEnv fun env => todoExtension.addEntry env info
+  Elab.Command.liftTermElabM <| Lean.Elab.Term.addTermInfo' message
+    (Lean.mkStrLit s!"TODO tag: {tag}") (expectedType? := none)
 
 end Physlib

@@ -68,6 +68,14 @@ This linter may need running a number of times.
 - `lake exe spelling` : Checks the spelling of words in Physlib against a given list
   of correctly spelled words which can be found in `./scripts/lint/exemptions/spellingWords.txt`
 
+## Linking a TODO to source lines
+
+`TODO "message"` links to the TODO command. To point at a different part of the
+same Lean file, write `TODO (lines := 12) "message"` or
+`TODO (lines := 12-18) "message"` with inclusive, one-based line numbers.
+In the YAML export, `line` and `endLine` describe the selected
+range. The GitHub link highlights all lines in that range.
+
 ## Checking golf pull requests
 
 - `scripts/github/check_golf.py` : Verifies that a pull request only *golfs* proofs, i.e.

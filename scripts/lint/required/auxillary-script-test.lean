@@ -128,6 +128,17 @@ def checkMakeTag (ctx : Ctx) (cwd : FilePath) : Check Unit := do
   ensure (tag.all fun c => ('A' ≤ c ∧ c ≤ 'Z') ∨ ('2' ≤ c ∧ c ≤ '7'))
     s!"`lake exe make_tag` printed `{tag}`, which is not a Base32 tag (characters `A-Z2-7`)."
 
+/-- Checks the TODO command syntax, stored positions and diagnostics against a source fixture. -/
+def checkTODOSyntax (ctx : Ctx) (cwd : FilePath) : Check Unit := do
+  let fixture := ctx.root / "scripts/lint/required/fixtures/todo-ranges.lean"
+  let out ← IO.Process.output {
+    cmd := "lake"
+    args := #["-d", ctx.root.toString, "env", "lean", fixture.toString]
+    cwd := cwd
+    env := #[("ELAN_TOOLCHAIN", some ctx.toolchain)] }
+  ensure (out.exitCode == 0)
+    s!"TODO range fixture failed:\n{tailLines out.stdout}\n{tailLines out.stderr}"
+
 /-- Checks `lake exe TODO_to_yml mkFile`: it should make `docs/_data/TODO.yml`, with a
 category section and a non-empty list of TODO items each carrying a tag. -/
 def checkTODOToYml (ctx : Ctx) (cwd : FilePath) : Check Unit := do
@@ -142,6 +153,18 @@ def checkTODOToYml (ctx : Ctx) (cwd : FilePath) : Check Unit := do
   let tags := yml.countStr "\n    tag: "
   ensure (tags = items)
     s!"`docs/_data/TODO.yml` has {items} TODO items but {tags} tags."
+  for item in (yml.splitOn "\n  - file: ").drop 1 do
+    let fields := item.splitOn "\n"
+    let some start := (fields.findSome? fun field =>
+      (field.dropPrefix? "    line: ").bind fun value => value.toString.toNat?) |
+      fail "A TODO item is missing its start line."
+    let some stop := (fields.findSome? fun field =>
+      (field.dropPrefix? "    endLine: ").bind fun value => value.toString.toNat?) |
+      fail "A TODO item is missing its end line."
+    ensure (0 < start && start <= stop) s!"Invalid TODO source range {start}-{stop}."
+    let anchor := if start == stop then s!"#L{start}" else s!"#L{start}-L{stop}"
+    ensure (fields.any fun field => field.startsWith "    githubLink: " && field.endsWith anchor)
+      s!"A TODO GitHub link is missing the source anchor {anchor}."
 
 /-- Checks `lake exe stats mkHTML`: it should print the statistics and make `docs/Stats.html`. -/
 def checkStats (ctx : Ctx) (cwd : FilePath) : Check Unit := do
@@ -201,6 +224,7 @@ def checkAPIMapIndex (ctx : Ctx) (cwd : FilePath) : Check Unit := do
 /-- The scripts to test, with the command shown to the user. -/
 def tests : List (String × (Ctx → FilePath → Check Unit)) := [
   ("lake exe make_tag", checkMakeTag),
+  ("TODO range fixture", checkTODOSyntax),
   ("lake exe TODO_to_yml mkFile", checkTODOToYml),
   ("lake exe stats mkHTML", checkStats),
   ("lake exe informal mkFile mkDot mkHTML", checkInformal),
